@@ -13,6 +13,7 @@
     "@headlessui/react": "^2.2.9",
     "axios": "^1.13.6",
     "heroicons": "^2.2.0",
+    "razorpay": "^2.9.6",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.13.1"

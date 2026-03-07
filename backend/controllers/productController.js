@@ -1,49 +1,30 @@
-const Product = require('../models/Product');
-const Vendor = require('../models/Vendor');
-
-// @desc    Create new product (Vendor only)
-// @route   POST /api/products
-exports.createProduct = async (req, res) => {
+// @desc    Get products by category
+// @route   GET /api/products/category/:categoryName
+exports.getProductsByCategory = async (req, res) => {
   try {
-    // Get vendor ID from logged in user
-    const vendor = await Vendor.findOne({ user: req.user.id });
+    const { categoryName } = req.params;
     
-    if (!vendor) {
-      return res.status(403).json({ 
-        message: 'Only vendors can create products' 
-      });
+    // Build filter object
+    let filter = {};
+    
+    // Case-insensitive category search
+    if (categoryName) {
+      filter.category = { $regex: new RegExp(`^${categoryName}$`, 'i') };
     }
 
-    // Add vendor to product data
-    req.body.vendor = vendor._id;
-
-    const product = await Product.create(req.body);
-
-    res.status(201).json({
-      success: true,
-      product
-    });
-  } catch (error) {
-    res.status(500).json({ 
-      message: 'Server error', 
-      error: error.message 
-    });
-  }
-};
-
-// @desc    Get all products
-// @route   GET /api/products
-exports.getProducts = async (req, res) => {
-  try {
-    const products = await Product.find()
-      .populate('vendor', 'storeName');
+    // Get products with filter
+    const products = await Product.find(filter)
+      .populate('vendor', 'storeName')
+      .sort('-createdAt');
 
     res.json({
       success: true,
       count: products.length,
+      category: categoryName,
       products
     });
   } catch (error) {
+    console.error('Error in getProductsByCategory:', error);
     res.status(500).json({ 
       message: 'Server error', 
       error: error.message 
@@ -51,98 +32,61 @@ exports.getProducts = async (req, res) => {
   }
 };
 
-// @desc    Get single product
-// @route   GET /api/products/:id
-exports.getProduct = async (req, res) => {
+// @desc    Get products with advanced filters (price, sort, pagination)
+// @route   GET /api/products/filter
+exports.getFilteredProducts = async (req, res) => {
   try {
-    const product = await Product.findById(req.params.id)
-      .populate('vendor', 'storeName');
+    const { 
+      category, 
+      minPrice, 
+      maxPrice, 
+      sortBy = 'createdAt', 
+      order = 'desc',
+      page = 1,
+      limit = 12
+    } = req.query;
 
-    if (!product) {
-      return res.status(404).json({ 
-        message: 'Product not found' 
-      });
-    }
-
-    res.json({
-      success: true,
-      product
-    });
-  } catch (error) {
-    res.status(500).json({ 
-      message: 'Server error', 
-      error: error.message 
-    });
-  }
-};
-
-// @desc    Update product (Vendor only)
-// @route   PUT /api/products/:id
-exports.updateProduct = async (req, res) => {
-  try {
-    let product = await Product.findById(req.params.id);
-
-    if (!product) {
-      return res.status(404).json({ 
-        message: 'Product not found' 
-      });
-    }
-
-    // Check if product belongs to vendor
-    const vendor = await Vendor.findOne({ user: req.user.id });
+    // Build filter object
+    let filter = {};
     
-    if (!vendor || product.vendor.toString() !== vendor._id.toString()) {
-      return res.status(403).json({ 
-        message: 'Not authorized to update this product' 
-      });
+    // Category filter
+    if (category) {
+      filter.category = { $regex: new RegExp(`^${category}$`, 'i') };
     }
-
-    product = await Product.findByIdAndUpdate(
-      req.params.id, 
-      req.body, 
-      { new: true, runValidators: true }
-    );
-
-    res.json({
-      success: true,
-      product
-    });
-  } catch (error) {
-    res.status(500).json({ 
-      message: 'Server error', 
-      error: error.message 
-    });
-  }
-};
-
-// @desc    Delete product (Vendor only)
-// @route   DELETE /api/products/:id
-exports.deleteProduct = async (req, res) => {
-  try {
-    const product = await Product.findById(req.params.id);
-
-    if (!product) {
-      return res.status(404).json({ 
-        message: 'Product not found' 
-      });
-    }
-
-    // Check if product belongs to vendor
-    const vendor = await Vendor.findOne({ user: req.user.id });
     
-    if (!vendor || product.vendor.toString() !== vendor._id.toString()) {
-      return res.status(403).json({ 
-        message: 'Not authorized to delete this product' 
-      });
+    // Price range filter
+    if (minPrice || maxPrice) {
+      filter.price = {};
+      if (minPrice) filter.price.$gte = Number(minPrice);
+      if (maxPrice) filter.price.$lte = Number(maxPrice);
     }
 
-    await product.deleteOne();
+    // Sorting
+    let sort = {};
+    sort[sortBy] = order === 'desc' ? -1 : 1;
+
+    // Pagination
+    const skip = (page - 1) * limit;
+    const total = await Product.countDocuments(filter);
+
+    // Execute query
+    const products = await Product.find(filter)
+      .populate('vendor', 'storeName')
+      .sort(sort)
+      .skip(skip)
+      .limit(Number(limit));
 
     res.json({
       success: true,
-      message: 'Product deleted successfully'
+      count: products.length,
+      total,
+      page: Number(page),
+      pages: Math.ceil(total / limit),
+      filters: { category, minPrice, maxPrice, sortBy, order },
+      products
     });
   } catch (error) {
+    console.error('Error in getFilteredProducts:', error);
     res.status(500).json({ 
       message: 'Server error', 
       error: error.message 
